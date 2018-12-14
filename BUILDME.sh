@@ -4,6 +4,7 @@
 
 set -e
 
+# 设置NOOBS输出目录
 # Final directory where NOOBS files will be copied to
 NOOBS_OUTPUT_DIR="output"
 
@@ -87,6 +88,7 @@ function update_github_kernel_version {
 }
 
 
+#执行此函数将内核编译的默认配置文件改为kernelconfig-recovery.armv6或者kernelconfig-recovery.armv7
 function select_kernelconfig {
     ARCH=$1
     CONFIG_FILE=.config
@@ -101,16 +103,20 @@ export QT_SELECT=4
 cd buildroot
 
 # WARNING: don't try changing these - you'll break buildroot
+# 不要尝试去修改这两个路径，该路径会影响buildroot的路径
 BUILD_DIR="output/build"
 IMAGES_DIR="output/images"
 
 # Delete buildroot build directory to force rebuild
+# 删除文件夹，用于再次编译
 if [ -e "$BUILD_DIR" ]; then
     rm -rf "$BUILD_DIR/recovery-$(get_package_version recovery)" || true
 fi
 
+#是否掠过内核编译
 SKIP_KERNEL_REBUILD=0
 
+#根据后缀参数触发不同的事件
 for i in $*; do
     # Update raspberrypi/firmware master HEAD version in package/rpi-firmware/rpi-firmware.mk to latest
     if [ $i = "update-firmware" ]; then
@@ -128,46 +134,70 @@ for i in $*; do
     fi
 
     # Option to build just recovery without completely rebuilding both kernels
+    #在不编译内核的情况下编译recovery模块
     if [ $i = "skip-kernel-rebuild" ]; then
         SKIP_KERNEL_REBUILD=1
     fi
 
+    # #支持编译versatilepb版本内核用于调试qemu
+    # if [ $i = "versatile_defconfig" ]; then
+    #     make qemu_arm_versatile_defconfig
+    # fi
+
+    # #恢复默认配置文件进行编译
+    # if [ $i = "defconfig" ]; then
+    #     make defconfig
+    # fi
+
     # Early-exit (in case we want to just update config files without doing a build)
+    #只更新配置文件而不进行编译
     if [ $i = "nobuild" ]; then
         exit
     fi
 done
 
 # Let buildroot build everything
+#通过buildroot脚本开始编译全部的代码包括：
+#所有支持包编译
+#涉及到的内核编译
 make
 
 # Create output dir and copy files
+#创建output文件夹进行文件拷贝
 FINAL_OUTPUT_DIR="../$NOOBS_OUTPUT_DIR"
 mkdir -p "$FINAL_OUTPUT_DIR"
 mkdir -p "$FINAL_OUTPUT_DIR/os"
 cp -r ../sdcontent/* "$FINAL_OUTPUT_DIR"
 
+#如果不忽略编译内核的话
 if [ $SKIP_KERNEL_REBUILD -ne 1 ]; then
     # Rebuild kernel for ARMv7
+    #准备编译ARMv7内核
     select_kernelconfig armv7
+    #build编译内核命令
     make linux-reconfigure
     # copy ARMv7 kernel
+    # 将v7内核复制到指定位置
     cp "$IMAGES_DIR/zImage" "$FINAL_OUTPUT_DIR/recovery7.img"
 
     # Rebuild kernel for ARMv6
+    #准备编译ARMv6内核
     select_kernelconfig armv6
     make linux-reconfigure
     # copy ARMv6 kernel
+    #将内核复制到指定位置
     cp "$IMAGES_DIR/zImage" "$FINAL_OUTPUT_DIR/recovery.img"
 else
     echo "Warning: kernels in '$NOOBS_OUTPUT_DIR' directory haven't been updated"
 fi
 
 # copy rootfs
+#将rootfs.squashfs复制至指定目录并重命名为recovery.rfs
 cp "$IMAGES_DIR/rootfs.squashfs" "$FINAL_OUTPUT_DIR/recovery.rfs"
 #cp "$IMAGES_DIR/rootfs.cpio.lzo" "$FINAL_OUTPUT_DIR/recovery.rfs"
 
 # Ensure that final output dir contains files necessary to boot
+#复制elf、bootcode.bin信息到指定文件夹
 cp "$IMAGES_DIR/rpi-firmware/start.elf" "$FINAL_OUTPUT_DIR/recovery.elf"
 cp "$IMAGES_DIR/rpi-firmware/bootcode.bin" "$FINAL_OUTPUT_DIR"
 cp -a $IMAGES_DIR/*.dtb "$IMAGES_DIR/overlays" "$FINAL_OUTPUT_DIR"
@@ -175,6 +205,7 @@ cp "$IMAGES_DIR/cmdline.txt" "$FINAL_OUTPUT_DIR/recovery.cmdline"
 touch "$FINAL_OUTPUT_DIR/RECOVERY_FILES_DO_NOT_EDIT"
 
 # Create build-date timestamp file containing Git HEAD info for build
+#输出编译信息
 BUILD_INFO="$FINAL_OUTPUT_DIR/BUILD-DATA"
 echo "Build-date: $(date +"%Y-%m-%d")" > "$BUILD_INFO"
 echo "NOOBS Version: $(sed -n 's|.*VERSION_NUMBER.*\"\(.*\)\"|v\1|p' ../recovery/config.h)" >> "$BUILD_INFO"
